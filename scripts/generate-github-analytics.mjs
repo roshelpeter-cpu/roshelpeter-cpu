@@ -1,5 +1,9 @@
 /**
- * Builds assets/profile/analytics.png from the GitHub GraphQL API.
+ * Builds separate GitHub analytics SVGs from the GitHub GraphQL API.
+ * Direct execution writes assets/analytics/stats.svg, languages.svg,
+ * activity-light.svg and activity-dark.svg.
+ * `node scripts/generate-github-analytics.mjs --public-activity` refreshes
+ * only the two activity charts from public contribution counts.
  *
  * Measurements, matched to the public schema:
  * - contributionsCollection.contributionCalendar.totalContributions
@@ -97,8 +101,22 @@ export function escapeXml(value) {
     .replaceAll("'", "&apos;");
 }
 
+function analyticsDirectory() {
+  return path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "assets", "analytics");
+}
+
+export function defaultAnalyticsOutputs() {
+  const directory = analyticsDirectory();
+  return {
+    stats: path.join(directory, "stats.svg"),
+    languages: path.join(directory, "languages.svg"),
+    activityLight: path.join(directory, "activity-light.svg"),
+    activityDark: path.join(directory, "activity-dark.svg"),
+  };
+}
+
 export function defaultAnalyticsPath() {
-  return path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "assets", "profile", "analytics.png");
+  return defaultAnalyticsOutputs().stats;
 }
 
 export function contributionWindow(now = new Date()) {
@@ -835,10 +853,148 @@ export function writeSvgAtomically(dest, svg) {
   }
 }
 
+const WIDGET_COLORS = {
+  light: { bg: "#ffffff", text: "#24292f", muted: "#57606a", line: "#d0d7de", accent: "#0969da" },
+  dark: { bg: "#0d1117", text: "#e6edf3", muted: "#8b949e", line: "#30363d", accent: "#58a6ff" },
+};
+
+const LANGUAGE_COLORS = ["#0969da", "#8250df", "#bf3989", "#1a7f37", "#9a6700", "#6e7781"];
+
+function widgetSvg(width, height, title, description, body, theme = "light") {
+  const colors = WIDGET_COLORS[theme] ?? WIDGET_COLORS.light;
+  const result = `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-labelledby="widgetTitle widgetDesc" data-analytics-state="live">
+  <title id="widgetTitle">${title}</title>
+  <desc id="widgetDesc">${description}</desc>
+  <rect width="${width}" height="${height}" rx="12" fill="${colors.bg}" stroke="${colors.line}"/>
+  ${body}
+</svg>`;
+  assertRenderable(result);
+  return result;
+}
+
+export function renderMonthlyActivitySvg(months, { theme = "light", from = "", to = "" } = {}) {
+  if (!Array.isArray(months) || months.length === 0 || months.length > 16) {
+    throw new Error("No monthly activity was available. Existing charts were left unchanged.");
+  }
+  const colors = WIDGET_COLORS[theme] ?? WIDGET_COLORS.light;
+  const width = 760;
+  const plotX = 36;
+  const plotY = 78;
+  const plotW = 688;
+  const plotH = 112;
+  const totals = months.map((month) => assertCount(month.total, "monthly total"));
+  const scaleMax = Math.max(...totals, 1);
+  const gap = 8;
+  const barWidth = (plotW - gap * (months.length - 1)) / months.length;
+  const bars = months.map((month, index) => {
+    const total = totals[index];
+    const height = (total / scaleMax) * plotH;
+    const x = plotX + index * (barWidth + gap);
+    const y = plotY + plotH - height;
+    const label = `${month.label} ${month.year}: ${total}`;
+    return `<rect x="${x.toFixed(2)}" y="${y.toFixed(2)}" width="${barWidth.toFixed(2)}" height="${height.toFixed(2)}" rx="3" fill="${colors.accent}"><title>${escapeXml(label)}</title></rect>
+      <text x="${(x + barWidth / 2).toFixed(2)}" y="${plotY + plotH + 20}" text-anchor="middle" fill="${colors.muted}" font-size="11" font-family="${SANS}">${escapeXml(month.label)}</text>`;
+  }).join("");
+  const total = totals.reduce((sum, value) => sum + value, 0);
+  return widgetSvg(width, 250, escapeXml("Contribution activity"), escapeXml(`Monthly public contributions from ${from} to ${to}.`), `
+    <text x="24" y="34" fill="${colors.text}" font-size="20" font-weight="700" font-family="${SANS}">Contribution activity</text>
+    <text x="24" y="56" fill="${colors.muted}" font-size="13" font-family="${SANS}">Public contributions per month, ${escapeXml(from)} to ${escapeXml(to)}</text>
+    <line x1="${plotX}" y1="${plotY + plotH}" x2="${plotX + plotW}" y2="${plotY + plotH}" stroke="${colors.line}"/>
+    ${bars}
+    <text data-metric="activity-total" x="736" y="34" text-anchor="end" fill="${colors.text}" font-size="18" font-weight="700" font-family="${SANS}">${total}</text>
+    <text x="736" y="54" text-anchor="end" fill="${colors.muted}" font-size="12" font-family="${SANS}">in this window</text>
+  `, theme);
+}
+
+function renderStatsWidgetSvg(model) {
+  const colors = WIDGET_COLORS.light;
+  const rows = [
+    ["repositories", "Public repositories", model.repositories],
+    ["contributions", "Contributions", model.contributions],
+    ["commits", "Commit contributions", model.commits],
+    ["pullRequests", "Pull request contributions", model.pullRequests],
+    ["issues", "Issue contributions", model.issues],
+    ["stars", "Stars on public repositories", model.stars],
+  ];
+  const lines = rows.map((row, index) => {
+    const y = 92 + index * 28;
+    return `<text x="24" y="${y}" fill="${colors.muted}" font-size="14" font-family="${SANS}">${escapeXml(row[1])}</text>
+      <text data-metric="${row[0]}" x="496" y="${y}" text-anchor="end" fill="${colors.text}" font-size="16" font-weight="700" font-family="${SANS}">${escapeXml(formatCount(row[2]))}</text>`;
+  }).join("");
+  const current = `${model.streaks.current}${model.streaks.currentIsCensored ? "+" : ""}`;
+  return widgetSvg(520, 320, escapeXml(`GitHub statistics for ${model.login}`), escapeXml(`Counts for ${model.from} to ${model.to}.`), `
+    <text x="24" y="36" fill="${colors.text}" font-size="20" font-weight="700" font-family="${SANS}">GitHub statistics</text>
+    <text x="24" y="58" fill="${colors.muted}" font-size="12" font-family="${SANS}">${escapeXml(model.from.slice(0, 10))} to ${escapeXml(model.to.slice(0, 10))}</text>
+    ${lines}
+    <text x="24" y="276" fill="${colors.muted}" font-size="13" font-family="${SANS}">Current streak</text>
+    <text data-streak="current" x="250" y="276" text-anchor="end" fill="${colors.text}" font-size="14" font-weight="700" font-family="${SANS}">${escapeXml(current)} days</text>
+    <text x="270" y="276" fill="${colors.muted}" font-size="13" font-family="${SANS}">Longest</text>
+    <text data-streak="longest" x="496" y="276" text-anchor="end" fill="${colors.text}" font-size="14" font-weight="700" font-family="${SANS}">${model.streaks.longest} days</text>
+  `);
+}
+
+function renderLanguagesWidgetSvg(model) {
+  const colors = WIDGET_COLORS.light;
+  const slices = model.languages.slices;
+  const rows = slices.length
+    ? slices.map((slice, index) => {
+      const y = 86 + index * 32;
+      const width = Math.max(2, Math.round((slice.tenths / 1000) * 280));
+      return `<rect x="24" y="${y - 12}" width="${width}" height="10" rx="5" fill="${LANGUAGE_COLORS[index % LANGUAGE_COLORS.length]}"/>
+        <text x="316" y="${y}" fill="${colors.text}" font-size="14" font-family="${SANS}">${escapeXml(slice.name)}</text>
+        <text data-language="${escapeXml(slice.name)}" x="616" y="${y}" text-anchor="end" fill="${colors.muted}" font-size="14" font-family="${SANS}">${escapeXml(slice.percentLabel)}</text>`;
+    }).join("")
+    : `<text x="24" y="100" fill="${colors.muted}" font-size="14" font-family="${SANS}">No language bytes were returned.</text>`;
+  return widgetSvg(640, Math.max(180, 110 + slices.length * 32), escapeXml("Repository language distribution"), escapeXml("Linguist byte share of public owned repositories, not a proficiency ranking."), `
+    <text x="24" y="36" fill="${colors.text}" font-size="20" font-weight="700" font-family="${SANS}">Repository languages</text>
+    <text x="24" y="58" fill="${colors.muted}" font-size="12" font-family="${SANS}">Share of code bytes in public owned repositories. This is not a proficiency ranking.</text>
+    ${rows}
+  `);
+}
+
+export async function writePublicActivityCharts({
+  login = PROFILE_LOGIN,
+  fetchImpl = globalThis.fetch,
+} = {}) {
+  let response;
+  try {
+    response = await fetchImpl(`https://github-contributions-api.jogruber.de/v4/${encodeURIComponent(login)}?y=last`);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : "network failure";
+    throw new Error(`Public contribution data was unavailable (${reason}). Existing charts were left unchanged.`);
+  }
+  if (!response.ok) {
+    throw new Error(`Public contribution data was unavailable (${response.status}). Existing charts were left unchanged.`);
+  }
+  let body;
+  try {
+    body = await response.json();
+  } catch {
+    throw new Error("Public contribution data was incomplete. Existing charts were left unchanged.");
+  }
+  if (!body || !Array.isArray(body.contributions) || body.contributions.length === 0) {
+    throw new Error("Public contribution data was incomplete. Existing charts were left unchanged.");
+  }
+  const days = body.contributions.map((day) => ({
+    date: assertIsoDate(day?.date, "contribution date"),
+    count: assertCount(day?.count, "contribution count"),
+  }));
+  const from = days[0].date;
+  const to = days[days.length - 1].date;
+  const months = monthlyTotals(days, from, to);
+  const light = renderMonthlyActivitySvg(months, { theme: "light", from, to });
+  const dark = renderMonthlyActivitySvg(months, { theme: "dark", from, to });
+  const outputs = defaultAnalyticsOutputs();
+  writeSvgAtomically(outputs.activityLight, light);
+  writeSvgAtomically(outputs.activityDark, dark);
+  return { outputs, months, from, to };
+}
+
 export async function runAnalytics({
   token = process.env.METRICS_TOKEN,
   login = PROFILE_LOGIN,
-  dest = defaultAnalyticsPath(),
+  dest = null,
   fetchImpl = globalThis.fetch,
   now = new Date(),
 } = {}) {
@@ -868,13 +1024,26 @@ export async function runAnalytics({
   if (!svg.includes('data-analytics-state="live"') || svg.includes(token)) {
     throw new Error("The analytics image failed validation. The existing file was left unchanged.");
   }
-  if (dest.endsWith(".png")) {
-    const { rasterizeSvg } = await import("./rasterize-svg.mjs");
-    writeBufferAtomically(dest, rasterizeSvg(svg, 1600));
-  } else {
+  if (dest) {
     writeSvgAtomically(dest, svg);
+    return { dest, model };
   }
-  return { dest, model };
+  const outputs = defaultAnalyticsOutputs();
+  const from = model.from.slice(0, 10);
+  const to = model.to.slice(0, 10);
+  const documents = [
+    [outputs.stats, renderStatsWidgetSvg(model)],
+    [outputs.languages, renderLanguagesWidgetSvg(model)],
+    [outputs.activityLight, renderMonthlyActivitySvg(model.months, { theme: "light", from, to })],
+    [outputs.activityDark, renderMonthlyActivitySvg(model.months, { theme: "dark", from, to })],
+  ];
+  for (const [, document] of documents) {
+    if (!document.includes('data-analytics-state="live"') || document.includes(token)) {
+      throw new Error("The analytics image failed validation. The existing file was left unchanged.");
+    }
+  }
+  for (const [file, document] of documents) writeSvgAtomically(file, document);
+  return { dest: outputs.stats, outputs, model };
 }
 
 function invokedDirectly() {
@@ -884,10 +1053,14 @@ function invokedDirectly() {
 }
 
 if (invokedDirectly()) {
-  runAnalytics()
-    .then((result) => {
-      console.log(`Updated GitHub analytics for ${result.model.login} (${result.model.from} to ${result.model.to}).`);
+  const task = process.argv.includes("--public-activity")
+    ? writePublicActivityCharts().then((result) => {
+      console.log(`Updated contribution activity from ${result.from} to ${result.to}.`);
     })
+    : runAnalytics().then((result) => {
+      console.log(`Updated GitHub analytics for ${result.model.login} (${result.model.from} to ${result.model.to}).`);
+    });
+  task
     .catch((error) => {
       const message = error instanceof Error ? error.message : "Analytics generation failed.";
       console.error(scrub(message, process.env.METRICS_TOKEN));

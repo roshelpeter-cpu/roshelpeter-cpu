@@ -27,21 +27,28 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "22"
-          cache: npm
 
-      - name: Install renderer
-        run: npm ci
+      - name: Refresh the public contribution activity chart
+        run: node scripts/generate-github-analytics.mjs --public-activity
 
-      - name: Generate analytics image
+      - name: Refresh detailed statistics when the token is available
         env:
           METRICS_TOKEN: ${{ secrets.METRICS_TOKEN }}
-        run: node scripts/generate-github-analytics.mjs
-
-      - name: Commit analytics image when it changes
         run: |
-          git add -- assets/profile/analytics.png
+          if [ -z "$METRICS_TOKEN" ]; then
+            echo "METRICS_TOKEN is not configured. Detailed statistics were left unchanged."
+            exit 0
+          fi
+          node scripts/generate-github-analytics.mjs
+
+      - name: Commit analytics when they change
+        run: |
+          git add -- assets/analytics/activity-light.svg assets/analytics/activity-dark.svg
+          if [ -f assets/analytics/stats.svg ]; then
+            git add -- assets/analytics/stats.svg assets/analytics/languages.svg
+          fi
           if git diff --cached --quiet; then
-            echo "Analytics image is unchanged. Nothing to commit."
+            echo "Analytics images are unchanged. Nothing to commit."
             exit 0
           fi
           git config user.name "github-actions[bot]"

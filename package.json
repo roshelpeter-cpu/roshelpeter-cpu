@@ -3,12 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "render": "node scripts/render-profile-assets.mjs",
-    "test": "node --test scripts/generate-github-analytics.test.mjs"
-  },
-  "dependencies": {
-    "@resvg/resvg-js": "^2.6.2",
-    "sharp": "^0.34.4",
-    "simple-icons": "^15.16.0"
+    "test": "node --test scripts/generate-github-analytics.test.mjs",
+    "activity": "node scripts/generate-github-analytics.mjs --public-activity"
   }
 }
