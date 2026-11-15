@@ -3,7 +3,6 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test scripts/generate-github-analytics.test.mjs",
-    "activity": "node scripts/generate-github-analytics.mjs --public-activity"
+    "test": "node --test scripts/generate-github-analytics.test.mjs"
   }
 }

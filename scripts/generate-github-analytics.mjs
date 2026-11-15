@@ -1,9 +1,6 @@
 /**
- * Builds separate GitHub analytics SVGs from the GitHub GraphQL API.
- * Direct execution writes assets/analytics/stats.svg, languages.svg,
- * activity-light.svg and activity-dark.svg.
- * `node scripts/generate-github-analytics.mjs --public-activity` refreshes
- * only the two activity charts from public contribution counts.
+ * Builds two GitHub analytics SVGs from the GitHub GraphQL API:
+ * assets/analytics/stats.svg and assets/analytics/languages.svg.
  *
  * Measurements, matched to the public schema:
  * - contributionsCollection.contributionCalendar.totalContributions
@@ -110,8 +107,6 @@ export function defaultAnalyticsOutputs() {
   return {
     stats: path.join(directory, "stats.svg"),
     languages: path.join(directory, "languages.svg"),
-    activityLight: path.join(directory, "activity-light.svg"),
-    activityDark: path.join(directory, "activity-dark.svg"),
   };
 }
 
@@ -873,40 +868,6 @@ function widgetSvg(width, height, title, description, body, theme = "light") {
   return result;
 }
 
-export function renderMonthlyActivitySvg(months, { theme = "light", from = "", to = "" } = {}) {
-  if (!Array.isArray(months) || months.length === 0 || months.length > 16) {
-    throw new Error("No monthly activity was available. Existing charts were left unchanged.");
-  }
-  const colors = WIDGET_COLORS[theme] ?? WIDGET_COLORS.light;
-  const width = 760;
-  const plotX = 36;
-  const plotY = 78;
-  const plotW = 688;
-  const plotH = 112;
-  const totals = months.map((month) => assertCount(month.total, "monthly total"));
-  const scaleMax = Math.max(...totals, 1);
-  const gap = 8;
-  const barWidth = (plotW - gap * (months.length - 1)) / months.length;
-  const bars = months.map((month, index) => {
-    const total = totals[index];
-    const height = (total / scaleMax) * plotH;
-    const x = plotX + index * (barWidth + gap);
-    const y = plotY + plotH - height;
-    const label = `${month.label} ${month.year}: ${total}`;
-    return `<rect x="${x.toFixed(2)}" y="${y.toFixed(2)}" width="${barWidth.toFixed(2)}" height="${height.toFixed(2)}" rx="3" fill="${colors.accent}"><title>${escapeXml(label)}</title></rect>
-      <text x="${(x + barWidth / 2).toFixed(2)}" y="${plotY + plotH + 20}" text-anchor="middle" fill="${colors.muted}" font-size="11" font-family="${SANS}">${escapeXml(month.label)}</text>`;
-  }).join("");
-  const total = totals.reduce((sum, value) => sum + value, 0);
-  return widgetSvg(width, 250, escapeXml("Contribution activity"), escapeXml(`Monthly public contributions from ${from} to ${to}.`), `
-    <text x="24" y="34" fill="${colors.text}" font-size="20" font-weight="700" font-family="${SANS}">Contribution activity</text>
-    <text x="24" y="56" fill="${colors.muted}" font-size="13" font-family="${SANS}">Public contributions per month, ${escapeXml(from)} to ${escapeXml(to)}</text>
-    <line x1="${plotX}" y1="${plotY + plotH}" x2="${plotX + plotW}" y2="${plotY + plotH}" stroke="${colors.line}"/>
-    ${bars}
-    <text data-metric="activity-total" x="736" y="34" text-anchor="end" fill="${colors.text}" font-size="18" font-weight="700" font-family="${SANS}">${total}</text>
-    <text x="736" y="54" text-anchor="end" fill="${colors.muted}" font-size="12" font-family="${SANS}">in this window</text>
-  `, theme);
-}
-
 function renderStatsWidgetSvg(model) {
   const colors = WIDGET_COLORS.light;
   const rows = [
@@ -922,15 +883,10 @@ function renderStatsWidgetSvg(model) {
     return `<text x="24" y="${y}" fill="${colors.muted}" font-size="14" font-family="${SANS}">${escapeXml(row[1])}</text>
       <text data-metric="${row[0]}" x="496" y="${y}" text-anchor="end" fill="${colors.text}" font-size="16" font-weight="700" font-family="${SANS}">${escapeXml(formatCount(row[2]))}</text>`;
   }).join("");
-  const current = `${model.streaks.current}${model.streaks.currentIsCensored ? "+" : ""}`;
-  return widgetSvg(520, 320, escapeXml(`GitHub statistics for ${model.login}`), escapeXml(`Counts for ${model.from} to ${model.to}.`), `
+  return widgetSvg(520, 268, escapeXml(`GitHub statistics for ${model.login}`), escapeXml(`Counts for ${model.from} to ${model.to}.`), `
     <text x="24" y="36" fill="${colors.text}" font-size="20" font-weight="700" font-family="${SANS}">GitHub statistics</text>
     <text x="24" y="58" fill="${colors.muted}" font-size="12" font-family="${SANS}">${escapeXml(model.from.slice(0, 10))} to ${escapeXml(model.to.slice(0, 10))}</text>
     ${lines}
-    <text x="24" y="276" fill="${colors.muted}" font-size="13" font-family="${SANS}">Current streak</text>
-    <text data-streak="current" x="250" y="276" text-anchor="end" fill="${colors.text}" font-size="14" font-weight="700" font-family="${SANS}">${escapeXml(current)} days</text>
-    <text x="270" y="276" fill="${colors.muted}" font-size="13" font-family="${SANS}">Longest</text>
-    <text data-streak="longest" x="496" y="276" text-anchor="end" fill="${colors.text}" font-size="14" font-weight="700" font-family="${SANS}">${model.streaks.longest} days</text>
   `);
 }
 
@@ -951,44 +907,6 @@ function renderLanguagesWidgetSvg(model) {
     <text x="24" y="58" fill="${colors.muted}" font-size="12" font-family="${SANS}">Share of code bytes in public owned repositories. This is not a proficiency ranking.</text>
     ${rows}
   `);
-}
-
-export async function writePublicActivityCharts({
-  login = PROFILE_LOGIN,
-  fetchImpl = globalThis.fetch,
-} = {}) {
-  let response;
-  try {
-    response = await fetchImpl(`https://github-contributions-api.jogruber.de/v4/${encodeURIComponent(login)}?y=last`);
-  } catch (error) {
-    const reason = error instanceof Error ? error.message : "network failure";
-    throw new Error(`Public contribution data was unavailable (${reason}). Existing charts were left unchanged.`);
-  }
-  if (!response.ok) {
-    throw new Error(`Public contribution data was unavailable (${response.status}). Existing charts were left unchanged.`);
-  }
-  let body;
-  try {
-    body = await response.json();
-  } catch {
-    throw new Error("Public contribution data was incomplete. Existing charts were left unchanged.");
-  }
-  if (!body || !Array.isArray(body.contributions) || body.contributions.length === 0) {
-    throw new Error("Public contribution data was incomplete. Existing charts were left unchanged.");
-  }
-  const days = body.contributions.map((day) => ({
-    date: assertIsoDate(day?.date, "contribution date"),
-    count: assertCount(day?.count, "contribution count"),
-  }));
-  const from = days[0].date;
-  const to = days[days.length - 1].date;
-  const months = monthlyTotals(days, from, to);
-  const light = renderMonthlyActivitySvg(months, { theme: "light", from, to });
-  const dark = renderMonthlyActivitySvg(months, { theme: "dark", from, to });
-  const outputs = defaultAnalyticsOutputs();
-  writeSvgAtomically(outputs.activityLight, light);
-  writeSvgAtomically(outputs.activityDark, dark);
-  return { outputs, months, from, to };
 }
 
 export async function runAnalytics({
@@ -1029,13 +947,9 @@ export async function runAnalytics({
     return { dest, model };
   }
   const outputs = defaultAnalyticsOutputs();
-  const from = model.from.slice(0, 10);
-  const to = model.to.slice(0, 10);
   const documents = [
     [outputs.stats, renderStatsWidgetSvg(model)],
     [outputs.languages, renderLanguagesWidgetSvg(model)],
-    [outputs.activityLight, renderMonthlyActivitySvg(model.months, { theme: "light", from, to })],
-    [outputs.activityDark, renderMonthlyActivitySvg(model.months, { theme: "dark", from, to })],
   ];
   for (const [, document] of documents) {
     if (!document.includes('data-analytics-state="live"') || document.includes(token)) {
@@ -1053,14 +967,10 @@ function invokedDirectly() {
 }
 
 if (invokedDirectly()) {
-  const task = process.argv.includes("--public-activity")
-    ? writePublicActivityCharts().then((result) => {
-      console.log(`Updated contribution activity from ${result.from} to ${result.to}.`);
-    })
-    : runAnalytics().then((result) => {
+  runAnalytics()
+    .then((result) => {
       console.log(`Updated GitHub analytics for ${result.model.login} (${result.model.from} to ${result.model.to}).`);
-    });
-  task
+    })
     .catch((error) => {
       const message = error instanceof Error ? error.message : "Analytics generation failed.";
       console.error(scrub(message, process.env.METRICS_TOKEN));

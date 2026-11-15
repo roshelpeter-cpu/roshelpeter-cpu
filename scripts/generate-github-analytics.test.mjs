@@ -12,7 +12,6 @@ import {
   monthlyTotals,
   normalizeApiPayload,
   renderAnalyticsSvg,
-  renderMonthlyActivitySvg,
   renderPlaceholderSvg,
   runAnalytics,
 } from "./generate-github-analytics.mjs";
@@ -148,18 +147,6 @@ test("heatmap places Monday on the second row and labels the first of a month", 
     { contributionDays: [{ date: "2025-12-01", weekday: 1, count: 1, level: "FIRST_QUARTILE" }] },
   ]);
   assert.deepEqual(spaced.monthLabels.map((label) => label.text), ["Nov", "Dec"]);
-});
-
-test("monthly activity chart uses the supplied totals", () => {
-  const svg = renderMonthlyActivitySvg([
-    { key: "2026-01", label: "Jan", year: "2026", total: 2 },
-    { key: "2026-02", label: "Feb", year: "2026", total: 0 },
-  ], { theme: "light", from: "2026-01-01", to: "2026-02-01" });
-  assert.match(svg, /data-analytics-state="live"/);
-  assert.match(svg, /data-metric="activity-total"[^>]*>2</);
-  assert.match(svg, /Jan 2026: 2/);
-  assert.doesNotMatch(svg, /NaN|Infinity/);
-  assert.throws(() => renderMonthlyActivitySvg([]));
 });
 
 test("placeholder text contains no numeric statistics", () => {
