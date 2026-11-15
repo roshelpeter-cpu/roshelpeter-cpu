@@ -74,23 +74,26 @@ Technologies used in my published projects.
 
 <table>
 <tr>
-<td align="center" width="120">
+<td align="center" valign="bottom" width="120">
 <a href="https://nodejs.org/docs/latest/api/"><img src="https://skillicons.dev/icons?i=nodejs" alt="Node.js" width="48" height="48"></a>
 <br>
 <a href="https://nodejs.org/docs/latest/api/">Node.js</a>
 </td>
-<td align="center" width="120">
+<td align="center" valign="bottom" width="120">
 <a href="https://expressjs.com/"><img src="https://skillicons.dev/icons?i=express" alt="Express.js" width="48" height="48"></a>
 <br>
 <a href="https://expressjs.com/">Express.js</a>
 </td>
-<td align="center" width="120">
+<td align="center" valign="bottom" width="120">
 <a href="https://laravel.com/docs"><img src="https://skillicons.dev/icons?i=laravel" alt="Laravel" width="48" height="48"></a>
 <br>
 <a href="https://laravel.com/docs">Laravel</a>
 </td>
-<td align="center" valign="middle" width="120">
+<td align="center" valign="bottom" width="120">
+<br>
 <a href="https://livewire.laravel.com/docs"><img alt="Livewire" src="https://img.shields.io/badge/Livewire-59636e?style=flat"></a>
+<br>
+<a href="https://livewire.laravel.com/docs">Livewire</a>
 </td>
 </tr>
 </table>
@@ -142,16 +145,18 @@ Technologies used in my published projects.
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://github-profile-summary-cards.vercel.app/api/cards/stats?username=roshelpeter-cpu&theme=transparent&bg_color=00000000&border_color=00000000&title_color=e6edf3&text_color=c9d1d9&icon_color=c9d1d9">
   <source media="(prefers-color-scheme: light)" srcset="https://github-profile-summary-cards.vercel.app/api/cards/stats?username=roshelpeter-cpu&theme=transparent&bg_color=00000000&border_color=00000000&title_color=24292f&text_color=57606a&icon_color=57606a">
-  <img alt="GitHub statistics: stars, commits, pull requests, issues and repositories contributed to" src="https://github-profile-summary-cards.vercel.app/api/cards/stats?username=roshelpeter-cpu&theme=transparent&bg_color=00000000&border_color=00000000&title_color=24292f&text_color=57606a&icon_color=57606a" height="180">
+  <img alt="GitHub statistics: stars, commits, pull requests, issues and repositories contributed to" src="https://github-profile-summary-cards.vercel.app/api/cards/stats?username=roshelpeter-cpu&theme=transparent&bg_color=00000000&border_color=00000000&title_color=24292f&text_color=57606a&icon_color=57606a" height="165">
 </picture>
-&nbsp;
+&nbsp;&nbsp;&nbsp;
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://github-profile-summary-cards.vercel.app/api/cards/repos-per-language?username=roshelpeter-cpu&theme=transparent&bg_color=00000000&border_color=00000000&title_color=e6edf3&text_color=c9d1d9">
   <source media="(prefers-color-scheme: light)" srcset="https://github-profile-summary-cards.vercel.app/api/cards/repos-per-language?username=roshelpeter-cpu&theme=transparent&bg_color=00000000&border_color=00000000&title_color=24292f&text_color=57606a">
-  <img alt="Repository language distribution by primary language. This is not a proficiency ranking." src="https://github-profile-summary-cards.vercel.app/api/cards/repos-per-language?username=roshelpeter-cpu&theme=transparent&bg_color=00000000&border_color=00000000&title_color=24292f&text_color=57606a" height="180">
+  <img alt="Repository language distribution by primary language. This is not a proficiency ranking." src="https://github-profile-summary-cards.vercel.app/api/cards/repos-per-language?username=roshelpeter-cpu&theme=transparent&bg_color=00000000&border_color=00000000&title_color=24292f&text_color=57606a" height="165">
+</picture>
+&nbsp;&nbsp;&nbsp;
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/analytics/streak-dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset="assets/analytics/streak-light.svg">
+  <img alt="Contribution streak calculated from GitHub contribution dates: current streak and longest streak" src="assets/analytics/streak-light.svg" height="165">
 </picture>
 </p>
-
-Repository languages are grouped by each repository's primary language, not by proficiency. Counts appear only when the statistics service returns them.
-
-Total Stars is the current star count on public repositories. Total Commits is the all-time public commit-contribution count, summed across every contribution year. Total PRs, Total Issues and Contributed to are all-time counts. The contribution calendar on this profile counts every contribution type over the last 12 months, so that total is a different measure.

@@ -1,6 +1,7 @@
 /**
- * Builds two GitHub analytics SVGs from the GitHub GraphQL API:
- * assets/analytics/stats.svg and assets/analytics/languages.svg.
+ * Builds GitHub analytics SVGs.
+ * GraphQL statistics: assets/analytics/stats.svg and assets/analytics/languages.svg.
+ * Public contribution streak: assets/analytics/streak-light.svg and streak-dark.svg.
  *
  * Measurements, matched to the public schema:
  * - contributionsCollection.contributionCalendar.totalContributions
@@ -107,6 +108,8 @@ export function defaultAnalyticsOutputs() {
   return {
     stats: path.join(directory, "stats.svg"),
     languages: path.join(directory, "languages.svg"),
+    streakLight: path.join(directory, "streak-light.svg"),
+    streakDark: path.join(directory, "streak-dark.svg"),
   };
 }
 
@@ -909,6 +912,210 @@ function renderLanguagesWidgetSvg(model) {
   `);
 }
 
+export function addIsoDays(iso, days) {
+  const [year, month, day] = assertIsoDate(iso, "contribution date").split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+export function parseContributionCalendar(html) {
+  if (typeof html !== "string" || !html.includes("data-date=")) {
+    throw new Error("Contribution calendar was incomplete. The existing streak image was left unchanged.");
+  }
+  const cells = [...html.matchAll(/data-date="(\d{4}-\d{2}-\d{2})" id="([^"]+)" data-level="(\d)"/g)];
+  if (cells.length === 0) {
+    throw new Error("Contribution calendar was incomplete. The existing streak image was left unchanged.");
+  }
+  const tips = new Map();
+  for (const match of html.matchAll(/<tool-tip\b[^>]*\bfor="([^"]+)"[^>]*>([^<]*)<\/tool-tip>/g)) {
+    tips.set(match[1], match[2].replace(/\s+/g, " ").trim());
+  }
+  const days = [];
+  const seen = new Set();
+  for (const match of cells) {
+    const date = assertIsoDate(match[1], "contribution date");
+    const id = match[2];
+    const level = Number(match[3]);
+    if (seen.has(date)) {
+      throw new Error(`Duplicate contribution date ${date}. The existing streak image was left unchanged.`);
+    }
+    seen.add(date);
+    const tip = tips.get(id);
+    if (tip == null) {
+      throw new Error(`Contribution count for ${date} was missing. The existing streak image was left unchanged.`);
+    }
+    let count;
+    if (tip.startsWith("No contributions")) count = 0;
+    else {
+      const parsed = tip.match(/^(\d+) contributions? on /);
+      if (!parsed) {
+        throw new Error(`Contribution count for ${date} was unreadable. The existing streak image was left unchanged.`);
+      }
+      count = Number(parsed[1]);
+    }
+    if (!Number.isSafeInteger(count) || (count === 0) !== (level === 0)) {
+      throw new Error(`Contribution count for ${date} did not match the calendar. The existing streak image was left unchanged.`);
+    }
+    days.push({ date, count });
+  }
+  return days;
+}
+
+export function mergeContributionDays(pages) {
+  const byDate = new Map();
+  for (const page of pages) {
+    for (const day of page) {
+      const date = assertIsoDate(day.date, "contribution date");
+      const count = assertCount(day.count, "contribution count");
+      if (byDate.has(date) && byDate.get(date) !== count) {
+        throw new Error(`Conflicting contribution count for ${date}. The existing streak image was left unchanged.`);
+      }
+      byDate.set(date, count);
+    }
+  }
+  return [...byDate.entries()].map(([date, count]) => ({ date, count }));
+}
+
+export function prepareStreakDays(days, { createdOn, now = new Date() } = {}) {
+  const start = assertIsoDate(createdOn, "account creation date");
+  const today = assertIsoDate(now.toISOString().slice(0, 10), "current date");
+  const next = addIsoDays(today, 1);
+  const byDate = new Map();
+  for (const day of days) {
+    const date = assertIsoDate(day.date, "contribution date");
+    const count = assertCount(day.count, "contribution count");
+    if (byDate.has(date) && byDate.get(date) !== count) {
+      throw new Error(`Conflicting contribution count for ${date}. The existing streak image was left unchanged.`);
+    }
+    byDate.set(date, count);
+  }
+  if (!byDate.has(today)) {
+    return { available: false, reason: "The contribution calendar does not include today." };
+  }
+  const end = byDate.has(next) && byDate.get(next) > 0 ? next : today;
+  const series = [];
+  for (let date = start; date <= end; date = addIsoDays(date, 1)) {
+    if (!byDate.has(date)) {
+      return { available: false, reason: `The contribution calendar is missing ${date}.` };
+    }
+    series.push({ date, count: byDate.get(date) });
+  }
+  const streaks = calculateStreaks(series);
+  return {
+    available: true,
+    current: streaks.current,
+    longest: streaks.longest,
+    from: start,
+    to: end,
+  };
+}
+
+const STREAK_THEMES = {
+  light: { title: "#24292f", muted: "#57606a", track: "#d0d7de", progress: "#1a7f37" },
+  dark: { title: "#e6edf3", muted: "#c9d1d9", track: "#30363d", progress: "#3fb950" },
+};
+
+function dayWord(count) {
+  return `${formatCount(count)} ${count === 1 ? "day" : "days"}`;
+}
+
+function streakRing(cx, cy, radius, ratio, color) {
+  if (ratio <= 0) return "";
+  if (ratio >= 0.999) {
+    return `<circle cx="${cx}" cy="${cy}" r="${radius}" fill="none" stroke="${color}" stroke-width="9"/>`;
+  }
+  const circumference = 2 * Math.PI * radius;
+  const drawn = ratio * circumference;
+  return `<circle cx="${cx}" cy="${cy}" r="${radius}" fill="none" stroke="${color}" stroke-width="9" stroke-linecap="round" stroke-dasharray="${drawn.toFixed(2)} ${(circumference - drawn).toFixed(2)}" transform="rotate(-90 ${cx} ${cy})"/>`;
+}
+
+export function renderStreakCardSvg(streak, theme = "light") {
+  const colors = STREAK_THEMES[theme] ?? STREAK_THEMES.light;
+  const font = "'Segoe UI', Ubuntu, 'Helvetica Neue', sans-serif";
+  const available = streak?.available === true;
+  const current = available ? streak.current : null;
+  const longest = available ? streak.longest : null;
+  const ratio = !available || longest === 0 ? 0 : current / longest;
+  const center = available ? formatCount(current) : "–";
+  const currentValue = available ? dayWord(current) : "Unavailable";
+  const longestValue = available ? dayWord(longest) : "Unavailable";
+  const state = available ? "live" : "unavailable";
+  const description = available
+    ? `Current streak ${currentValue}. Longest streak ${longestValue}. Calculated from GitHub contribution dates ${streak.from} through ${streak.to}.`
+    : "The contribution streak is unavailable because the contribution dates could not be calculated reliably.";
+  const result = `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="340" height="200" viewBox="0 0 340 200" role="img" aria-labelledby="streakTitle streakDesc" data-analytics-state="${state}">
+  <title id="streakTitle">Contribution streak</title>
+  <desc id="streakDesc">${escapeXml(description)}</desc>
+  <rect width="340" height="200" fill="transparent"/>
+  <text x="30" y="40" fill="${colors.title}" font-size="22" font-family="${font}">Contribution streak</text>
+  <text x="30" y="98" fill="${colors.muted}" font-size="14" font-family="${font}">Current streak</text>
+  <text data-streak="current" x="30" y="124" fill="${colors.title}" font-size="18" font-weight="700" font-family="${font}">${escapeXml(currentValue)}</text>
+  <text x="30" y="156" fill="${colors.muted}" font-size="14" font-family="${font}">Longest streak</text>
+  <text data-streak="longest" x="30" y="182" fill="${colors.title}" font-size="18" font-weight="700" font-family="${font}">${escapeXml(longestValue)}</text>
+  <circle cx="272" cy="122" r="44" fill="none" stroke="${colors.track}" stroke-width="9"/>
+  ${streakRing(272, 122, 44, ratio, colors.progress)}
+  <text data-streak="ring" x="272" y="130" text-anchor="middle" fill="${colors.title}" font-size="26" font-weight="700" font-family="${font}">${escapeXml(center)}</text>
+</svg>
+`;
+  assertRenderable(result);
+  return result;
+}
+
+async function fetchText(fetchImpl, url, headers) {
+  let response;
+  try {
+    response = await fetchImpl(url, { headers, signal: AbortSignal.timeout(20000) });
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : "network failure";
+    throw new Error(`Contribution calendar request failed (${reason}). The existing streak image was left unchanged.`);
+  }
+  if (!response.ok) {
+    throw new Error(`Contribution calendar request failed (${response.status}). The existing streak image was left unchanged.`);
+  }
+  return response.text();
+}
+
+export async function runStreakCards({
+  login = PROFILE_LOGIN,
+  fetchImpl = globalThis.fetch,
+  now = new Date(),
+  outputs = null,
+} = {}) {
+  const apiHeaders = {
+    Accept: "application/vnd.github+json",
+    "User-Agent": "roshelpeter-cpu-analytics",
+  };
+  const profile = await fetchText(fetchImpl, `https://api.github.com/users/${login}`, apiHeaders);
+  let createdOn;
+  try {
+    createdOn = JSON.parse(profile)?.created_at?.slice(0, 10);
+  } catch {
+    throw new Error("GitHub profile data was incomplete. The existing streak image was left unchanged.");
+  }
+  assertIsoDate(createdOn, "account creation date");
+  const today = now.toISOString().slice(0, 10);
+  const years = [];
+  for (let year = Number(createdOn.slice(0, 4)); year <= Number(today.slice(0, 4)); year += 1) years.push(year);
+  const pages = [];
+  for (const year of years) {
+    const html = await fetchText(
+      fetchImpl,
+      `https://github.com/users/${login}/contributions?from=${year}-01-01&to=${year}-12-31`,
+      { Accept: "text/html", "User-Agent": "roshelpeter-cpu-analytics" },
+    );
+    pages.push(parseContributionCalendar(html));
+  }
+  const streak = prepareStreakDays(mergeContributionDays(pages), { createdOn, now });
+  const files = outputs ?? defaultAnalyticsOutputs();
+  const light = renderStreakCardSvg(streak, "light");
+  const dark = renderStreakCardSvg(streak, "dark");
+  writeSvgAtomically(files.streakLight, light);
+  writeSvgAtomically(files.streakDark, dark);
+  return { login, streak, outputs: files };
+}
+
 export async function runAnalytics({
   token = process.env.METRICS_TOKEN,
   login = PROFILE_LOGIN,
@@ -967,8 +1174,18 @@ function invokedDirectly() {
 }
 
 if (invokedDirectly()) {
-  runAnalytics()
+  const streakOnly = process.argv.includes("--streak");
+  const pending = streakOnly ? runStreakCards() : runAnalytics();
+  pending
     .then((result) => {
+      if (streakOnly) {
+        if (result.streak.available) {
+          console.log(`Updated contribution streak for ${result.login}: current ${result.streak.current} days, longest ${result.streak.longest} days (${result.streak.from} to ${result.streak.to}).`);
+        } else {
+          console.log(`Contribution streak is unavailable (${result.streak.reason}).`);
+        }
+        return;
+      }
       console.log(`Updated GitHub analytics for ${result.model.login} (${result.model.from} to ${result.model.to}).`);
     })
     .catch((error) => {

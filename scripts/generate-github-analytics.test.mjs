@@ -9,11 +9,16 @@ import {
   escapeXml,
   heatmapLayout,
   languageDistribution,
+  mergeContributionDays,
   monthlyTotals,
   normalizeApiPayload,
+  parseContributionCalendar,
+  prepareStreakDays,
   renderAnalyticsSvg,
   renderPlaceholderSvg,
+  renderStreakCardSvg,
   runAnalytics,
+  runStreakCards,
 } from "./generate-github-analytics.mjs";
 
 const TOKEN = "test-metrics-token";
@@ -352,4 +357,150 @@ test("a successful run writes only after a complete response and never embeds th
   assert.match(svg, /data-metric="repositories"[^>]*>2</);
   assert.doesNotMatch(svg, new RegExp(TOKEN));
   assert.equal(svg.includes("KEEP"), false);
+});
+
+function calendarHtml(days) {
+  const cells = days.map((day, index) => {
+    const id = `day-${index}`;
+    const level = day.count > 0 ? 1 : 0;
+    const tip = day.count === 0
+      ? "No contributions on this day."
+      : `${day.count} ${day.count === 1 ? "contribution" : "contributions"} on this day.`;
+    return `<td data-date="${day.date}" id="${id}" data-level="${level}"></td><tool-tip for="${id}">${tip}</tool-tip>`;
+  }).join("");
+  return `<div data-date="calendar">${cells}</div>`;
+}
+
+test("contribution calendar text is only accepted when the level and count agree", () => {
+  const parsed = parseContributionCalendar(calendarHtml([
+    { date: "2026-11-15", count: 9 },
+    { date: "2026-11-16", count: 0 },
+  ]));
+  assert.deepEqual(parsed, [
+    { date: "2026-11-15", count: 9 },
+    { date: "2026-11-16", count: 0 },
+  ]);
+  assert.throws(
+    () => parseContributionCalendar(`<td data-date="2026-11-16" id="day-0" data-level="1"></td><tool-tip for="day-0">No contributions on this day.</tool-tip>`),
+    /did not match the calendar/,
+  );
+  assert.throws(
+    () => mergeContributionDays([
+      [{ date: "2026-11-16", count: 1 }],
+      [{ date: "2026-11-16", count: 2 }],
+    ]),
+    /Conflicting contribution count/,
+  );
+});
+
+test("streaks ignore future empty days and stay unavailable when a date is missing", () => {
+  const days = [
+    { date: "2026-11-13", count: 2 },
+    { date: "2026-11-14", count: 1 },
+    { date: "2026-11-15", count: 0 },
+    { date: "2026-11-16", count: 0 },
+    { date: "2026-12-31", count: 0 },
+  ];
+  const streak = prepareStreakDays(days, {
+    createdOn: "2026-11-13",
+    now: new Date("2026-11-15T22:00:00Z"),
+  });
+  assert.deepEqual(streak, {
+    available: true,
+    current: 2,
+    longest: 2,
+    from: "2026-11-13",
+    to: "2026-11-15",
+  });
+
+  const carried = prepareStreakDays([
+    { date: "2026-11-14", count: 0 },
+    { date: "2026-11-15", count: 1 },
+    { date: "2026-11-16", count: 4 },
+  ], {
+    createdOn: "2026-11-14",
+    now: new Date("2026-11-15T22:00:00Z"),
+  });
+  assert.equal(carried.current, 2);
+  assert.equal(carried.to, "2026-11-16");
+
+  const missing = prepareStreakDays([
+    { date: "2026-11-14", count: 1 },
+    { date: "2026-11-16", count: 1 },
+  ], {
+    createdOn: "2026-11-14",
+    now: new Date("2026-11-16T12:00:00Z"),
+  });
+  assert.equal(missing.available, false);
+  assert.match(missing.reason, /missing 2026-11-15/);
+});
+
+test("streak cards show calculated days and an unavailable state without a number", () => {
+  const live = renderStreakCardSvg({
+    available: true,
+    current: 2,
+    longest: 3,
+    from: "2025-08-19",
+    to: "2026-11-16",
+  }, "light");
+  assert.match(live, /data-analytics-state="live"/);
+  assert.match(live, /data-streak="current"[^>]*>2 days</);
+  assert.match(live, /data-streak="longest"[^>]*>3 days</);
+  assert.match(live, /data-streak="ring"[^>]*>2</);
+  assert.match(live, /#1a7f37/);
+
+  const dark = renderStreakCardSvg({
+    available: true,
+    current: 1,
+    longest: 1,
+    from: "2026-11-16",
+    to: "2026-11-16",
+  }, "dark");
+  assert.match(dark, /1 day</);
+  assert.match(dark, /#3fb950/);
+  assert.match(dark, /#e6edf3/);
+
+  const unavailable = renderStreakCardSvg({ available: false }, "dark");
+  assert.match(unavailable, /data-analytics-state="unavailable"/);
+  assert.match(unavailable, /Unavailable/);
+  for (const text of textNodes(unavailable)) assert.doesNotMatch(text, /\d/);
+});
+
+test("a failed streak refresh does not replace an existing card", async () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "streak-"));
+  const streakLight = path.join(directory, "streak-light.svg");
+  const streakDark = path.join(directory, "streak-dark.svg");
+  writeFileSync(streakLight, "KEEP");
+  writeFileSync(streakDark, "KEEP");
+  await assert.rejects(() => runStreakCards({
+    fetchImpl: async () => ({ ok: false, status: 503, text: async () => "" }),
+    outputs: { streakLight, streakDark },
+  }));
+  assert.equal(readFileSync(streakLight, "utf8"), "KEEP");
+  assert.equal(readFileSync(streakDark, "utf8"), "KEEP");
+
+  const fetchImpl = async (url) => {
+    if (String(url).includes("api.github.com/users/")) {
+      return { ok: true, status: 200, text: async () => JSON.stringify({ created_at: "2026-11-14T00:00:00Z" }) };
+    }
+    return {
+      ok: true,
+      status: 200,
+      text: async () => calendarHtml([
+        { date: "2026-11-14", count: 2 },
+        { date: "2026-11-15", count: 1 },
+        { date: "2026-11-16", count: 0 },
+      ]),
+    };
+  };
+  const result = await runStreakCards({
+    fetchImpl,
+    now: new Date("2026-11-16T12:00:00Z"),
+    outputs: { streakLight, streakDark },
+  });
+  assert.equal(result.streak.current, 2);
+  assert.equal(result.streak.longest, 2);
+  assert.match(readFileSync(streakLight, "utf8"), /data-streak="current"[^>]*>2 days</);
+  assert.match(readFileSync(streakDark, "utf8"), /#3fb950/);
+  assert.doesNotMatch(readFileSync(streakLight, "utf8"), /KEEP/);
 });

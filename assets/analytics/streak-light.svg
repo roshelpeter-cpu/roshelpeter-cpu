@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="340" height="200" viewBox="0 0 340 200" role="img" aria-labelledby="streakTitle streakDesc" data-analytics-state="live">
+  <title id="streakTitle">Contribution streak</title>
+  <desc id="streakDesc">Current streak 2 days. Longest streak 3 days. Calculated from GitHub contribution dates 2025-08-19 through 2026-11-16.</desc>
+  <rect width="340" height="200" fill="transparent"/>
+  <text x="30" y="40" fill="#24292f" font-size="22" font-family="'Segoe UI', Ubuntu, 'Helvetica Neue', sans-serif">Contribution streak</text>
+  <text x="30" y="98" fill="#57606a" font-size="14" font-family="'Segoe UI', Ubuntu, 'Helvetica Neue', sans-serif">Current streak</text>
+  <text data-streak="current" x="30" y="124" fill="#24292f" font-size="18" font-weight="700" font-family="'Segoe UI', Ubuntu, 'Helvetica Neue', sans-serif">2 days</text>
+  <text x="30" y="156" fill="#57606a" font-size="14" font-family="'Segoe UI', Ubuntu, 'Helvetica Neue', sans-serif">Longest streak</text>
+  <text data-streak="longest" x="30" y="182" fill="#24292f" font-size="18" font-weight="700" font-family="'Segoe UI', Ubuntu, 'Helvetica Neue', sans-serif">3 days</text>
+  <circle cx="272" cy="122" r="44" fill="none" stroke="#d0d7de" stroke-width="9"/>
+  <circle cx="272" cy="122" r="44" fill="none" stroke="#1a7f37" stroke-width="9" stroke-linecap="round" stroke-dasharray="184.31 92.15" transform="rotate(-90 272 122)"/>
+  <text data-streak="ring" x="272" y="130" text-anchor="middle" fill="#24292f" font-size="26" font-weight="700" font-family="'Segoe UI', Ubuntu, 'Helvetica Neue', sans-serif">2</text>
+</svg>

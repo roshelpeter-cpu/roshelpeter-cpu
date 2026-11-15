@@ -28,6 +28,10 @@ jobs:
         with:
           node-version: "22"
 
+      - name: Refresh contribution streak
+        continue-on-error: true
+        run: node scripts/generate-github-analytics.mjs --streak
+
       - name: Refresh statistics and language distribution
         env:
           METRICS_TOKEN: ${{ secrets.METRICS_TOKEN }}
@@ -40,11 +44,17 @@ jobs:
 
       - name: Commit analytics when they change
         run: |
-          if [ ! -f assets/analytics/stats.svg ]; then
-            echo "No generated statistics to commit."
+          files=()
+          for file in assets/analytics/stats.svg assets/analytics/languages.svg assets/analytics/streak-light.svg assets/analytics/streak-dark.svg; do
+            if [ -f "$file" ]; then
+              files+=("$file")
+            fi
+          done
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "No generated analytics to commit."
             exit 0
           fi
-          git add -- assets/analytics/stats.svg assets/analytics/languages.svg
+          git add -- "${files[@]}"
           if git diff --cached --quiet; then
             echo "Analytics images are unchanged. Nothing to commit."
             exit 0
